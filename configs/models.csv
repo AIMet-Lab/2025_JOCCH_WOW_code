@@ -1,0 +1,9 @@
+ID,LANGUAGE,MODEL
+M1,IT,knowledgator/comprehend_it-multilingual-t5-base
+M2,IT,MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
+M3,IT,MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli
+M4,IT,mjwong/multilingual-e5-base-xnli-anli
+M5,EN,knowledgator/comprehend_it-base
+M6,EN,facebook/bart-large-mnli
+M7,EN,MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
+M8,EN,MoritzLaurer/deberta-v3-base-zeroshot-v1.1-all-33
