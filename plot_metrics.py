@@ -4,11 +4,12 @@ import seaborn
 import pathlib
 import re
 import argparse
+import numpy
 
 seaborn.set(style="whitegrid")
 
 # Regex to extract metadata from file names
-METRICS_FILE_REGEX = re.compile(r"metrics_([kc])_(it|en|en_nmt)_(M[1-8])_(T[01])_(\d+)\.csv")
+METRICS_FILE_REGEX = re.compile(r"metrics_([kc])_(it|en|en_nmt)_(M[1-8])_(T[01])_([\d]+(?:\.\d+)?)\.csv")
 
 # Color palette for models
 MODEL_PALETTE = {
@@ -29,8 +30,6 @@ def parse_args():
                         help="Folder containing metrics_*.csv files.")
     parser.add_argument("--output_folder", required=True, type=str,
                         help="Folder to store generated plots.")
-    parser.add_argument("--metric", default="F-Score", type=str,
-                        help="Metric to visualize (e.g., F-Score, Precision, Accuracy).")
     return parser.parse_args()
 
 
@@ -246,12 +245,78 @@ def plot_heatmap_summary(df: pandas.DataFrame, metric: str, output_file: pathlib
     print(f"📦 Saved heatmap to {output_file}")
 
 
+def plot_heatmap_by_threshold(df: pandas.DataFrame, metric: str, output_file: pathlib.Path):
+    thresholds = sorted(df["threshold"].unique())[:4]  # Limit to 4 thresholds
+    n_rows, n_cols = 2, 2
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 10), constrained_layout=True)
+    axes = axes.flatten()
+
+    if metric == "F-Score":
+        vmin = 0
+        vmax = 0.25
+        cmap = "Purples"
+    elif metric == "Precision":
+        vmin = 0
+        vmax = 0.25
+        cmap = "Blues"
+    else:
+        vmin = 0.3
+        vmax = 0.9
+        cmap = "Reds"
+
+    for i, threshold in enumerate(thresholds):
+        ax = axes[i]
+        subset = df[df["threshold"] == threshold]
+
+        heatmap_data = (
+            subset
+            .groupby(["model", "language"], as_index=True)[metric]
+            .mean()
+            .unstack()
+        )
+
+        seaborn.heatmap(
+            heatmap_data,
+            annot=True,
+            fmt=".2f",
+            cmap=cmap,
+            linewidths=0.5,
+            linecolor="white",
+            vmin=vmin,
+            vmax=vmax,
+            cbar=False,
+            ax=ax
+        )
+
+        ax.set_title(f"Threshold = {threshold}", fontsize="large", weight="bold")
+        ax.set_xlabel("Language", labelpad=15, fontsize="medium", weight="bold")
+        ax.set_ylabel("Model", labelpad=15, fontsize="medium", weight="bold")
+
+    # Hide any unused subplots (not needed if exactly 4, but safe for future)
+    for j in range(len(thresholds), len(axes)):
+        fig.delaxes(axes[j])
+
+    # Add a single colorbar aligned to the full figure
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
+    # Add colorbar on the right
+    cbar = fig.colorbar(sm, ax=axes, orientation="vertical", shrink=0.7, pad=0.02)
+    cbar.set_label(f"Mean {metric}", fontsize="medium", weight="bold", labelpad=10)
+
+    plt.savefig(output_file)
+    print(f"📦 Saved threshold heatmap grid to {output_file}")
+
+
+ALL_METRICS = ["Precision", "Recall", "F-Score"]
+
 def main():
     args = parse_args()
 
     metrics_path = pathlib.Path(args.metrics_folder)
     output_path = pathlib.Path(args.output_folder)
-    metric_col = args.metric
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Load all relevant metric CSV files
@@ -262,7 +327,7 @@ def main():
             continue
 
         key_type, language, model, template, threshold_str = match.groups()
-        threshold = int(threshold_str)
+        threshold = float(threshold_str)
 
         df = pandas.read_csv(file, index_col=0).reset_index()
         df.rename(columns={"index": "keyword"}, inplace=True)
@@ -277,30 +342,50 @@ def main():
     # Combine all metric rows
     combined_df = pandas.concat(records, ignore_index=True)
 
-    if metric_col not in combined_df.columns:
-        raise ValueError(f"Metric '{metric_col}' not found in CSV columns.")
+    # Loop through each metric
+    for metric_col in ALL_METRICS:
+        if metric_col not in combined_df.columns:
+            raise ValueError(f"Metric '{metric_col}' not found in CSV columns.")
 
-    # Create simplified dataframe for plotting
-    plot_df = combined_df[[
-        "keyword", metric_col, "key_type", "language", "model", "template", "threshold"
-    ]]
+        # Create simplified dataframe for plotting
+        plot_df = combined_df[[
+            "keyword", metric_col, "key_type", "language", "model", "template", "threshold"
+        ]]
 
-    # Plot per threshold (flat structure with threshold in filename)
-    for threshold in sorted(plot_df["threshold"].unique()):
-        df_threshold = plot_df[plot_df["threshold"] == threshold]
+        # Plot per threshold (flat structure with threshold in filename)
+        for threshold in sorted(plot_df["threshold"].unique()):
+            df_threshold = plot_df[plot_df["threshold"] == threshold]
 
-        # Save filtered plot_df
-        output_csv_path = output_path / f"aggregated_plot_data_thr_{threshold}.csv"
-        df_threshold.to_csv(output_csv_path, index=False)
-        print(f"📄 Saved aggregated data for threshold {threshold} to {output_csv_path}")
+            # Save filtered plot_df
+            output_csv_path = output_path / f"aggregated_plot_data_{metric_col.lower()}_thr_{threshold}.csv"
+            df_threshold.to_csv(output_csv_path, index=False)
+            print(f"📄 Saved aggregated data for {metric_col} threshold {threshold} to {output_csv_path}")
 
-        # Generate plots with threshold embedded in filename
-        plot_boxplot_distribution(df_threshold, metric_col,
-                                  output_path / f"{metric_col.lower()}_boxplot_by_model_thr_{threshold}.pdf")
-        plot_template_effect(df_threshold, metric_col,
-                             output_path / f"{metric_col.lower()}_template_effect_thr_{threshold}.pdf")
-        plot_heatmap_summary(df_threshold, metric_col,
-                             output_path / f"{metric_col.lower()}_heatmap_model_language_thr_{threshold}.pdf")
+            # Generate plots with threshold embedded in filename
+            plot_boxplot_distribution(
+                df_threshold,
+                metric_col,
+                output_path / f"{metric_col.lower()}_boxplot_by_model_thr_{threshold}.pdf"
+            )
+
+            plot_template_effect(
+                df_threshold,
+                metric_col,
+                output_path / f"{metric_col.lower()}_template_effect_thr_{threshold}.pdf"
+            )
+
+            plot_heatmap_summary(
+                df_threshold,
+                metric_col,
+                output_path / f"{metric_col.lower()}_heatmap_model_language_thr_{threshold}.pdf"
+            )
+
+        # Generate threshold summary heatmap (one grid across all thresholds)
+        plot_heatmap_by_threshold(
+            plot_df,
+            metric_col,
+            output_path / f"{metric_col.lower()}_heatmap_model_language_by_threshold.pdf"
+        )
 
 
 if __name__ == "__main__":

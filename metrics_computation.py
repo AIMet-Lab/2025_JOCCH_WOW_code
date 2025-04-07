@@ -73,8 +73,8 @@ def parse_args():
                         help="Folder containing ground truth .csv files")
     parser.add_argument("--output_folder", required=True, type=str,
                         help="Folder to store output metric files")
-    parser.add_argument("--threshold", type=float, default=0.5,
-                        help="Classification threshold (default: 0.75)")
+    parser.add_argument("--threshold", type=float, default=0.75,
+                        help="Classification threshold (default: 0.625)")
     parser.add_argument("--log_level", type=str, default="INFO",
                         help="Logging level: DEBUG, INFO, WARNING, ERROR")
     return parser.parse_args()
@@ -129,7 +129,7 @@ def evaluate_all(results_dir: pathlib.Path, ground_truth_dir: pathlib.Path, outp
             classification_df = get_classification_df(result_df, threshold=threshold)
             metrics_df = compute_metrics(classification_df, ground_truth_df)
 
-            threshold_pct = int(round(threshold * 100))
+            threshold_pct = threshold
             output_filename = f"metrics_{key_type}_{language}_{model}_{template}_{threshold_pct}.csv"
 
             output_path = output_dir / output_filename
