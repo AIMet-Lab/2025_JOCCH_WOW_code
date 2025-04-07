@@ -63,7 +63,14 @@ def plot_boxplot_distribution(df: pandas.DataFrame, metric: str, output_file: pa
         sharey=True
     )
 
-    plot.set_axis_labels("Model", metric)
+    # Remove x-axis labels from individual plots
+    for ax in plot.axes[-1]:
+        ax.set_xlabel("")
+
+    # Set y-axis label only on the leftmost column
+    for row_axes in plot.axes:
+        for i, ax in enumerate(row_axes):
+            ax.set_ylabel(metric if i == 0 else "")
 
     # Remove default facet titles
     for ax in plot.axes.flat:
@@ -76,7 +83,7 @@ def plot_boxplot_distribution(df: pandas.DataFrame, metric: str, output_file: pa
         ax.set_title(col_titles.get(key_type, key_type), fontsize="large", weight="bold")
 
     # Add row labels manually to the right
-    row_titles = {"T0": "Label Template T0", "T1": "Label Template T1"}
+    row_titles = {"T0": "T0", "T1": "T1"}
     for i, template in enumerate(plot.row_names):
         ax = plot.axes[i, -1]  # last column of each row
         ax.annotate(
@@ -89,6 +96,15 @@ def plot_boxplot_distribution(df: pandas.DataFrame, metric: str, output_file: pa
             fontsize="large",
             weight="bold"
         )
+
+    # Add single shared x-axis label for "Model"
+    plot.fig.text(
+        0.485, 0.01, "Models",
+        ha="center",
+        va="center",
+        fontsize="large",
+        weight="bold"
+    )
 
     # Save to PDF
     plot.savefig(output_file)
@@ -119,7 +135,7 @@ def plot_template_effect(df: pandas.DataFrame, metric: str, output_file: pathlib
     # Ordering for facets and labels
     language_order = ["en_nmt", "en", "it"]
     key_type_order = ["k", "c"]
-    col_titles = {"en_nmt": "English Neural MT", "en": "English MT", "it": "Italian"}
+    col_titles = {"en_nmt": "en_nmt", "en": "en", "it": "it"}
     row_titles = {"k": "Keywords", "c": "Concepts"}
 
     line_df["language"] = pandas.Categorical(line_df["language"], categories=language_order, ordered=True)
@@ -203,18 +219,28 @@ def plot_heatmap_summary(df: pandas.DataFrame, metric: str, output_file: pathlib
         .unstack()
     )
 
-    plt.figure(figsize=(8, 6))
-    seaborn.heatmap(
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
+
+    heatmap = seaborn.heatmap(
         heatmap_data,
         annot=True,
         fmt=".2f",
-        cmap="Blues",
-        cbar_kws={"label": f"Avg {metric}"}
+        cmap="Greens",
+        linewidths=0.5,
+        linecolor="white",
+        cbar_kws={"label": f"Mean {metric}"},
+        ax=ax
     )
-    plt.title(f"Average {metric} per Model and Language")
-    plt.ylabel("Model")
-    plt.xlabel("Language")
-    plt.tight_layout()
+
+    # Bold and padded axis labels
+    ax.set_ylabel("Model", labelpad=10, fontsize="medium", weight="bold")
+    ax.set_xlabel("Language", labelpad=10, fontsize="medium", weight="bold")
+
+    # Bold colorbar label with proper spacing
+    colorbar = heatmap.collections[0].colorbar
+    colorbar.ax.yaxis.label.set_size("medium")
+    colorbar.ax.yaxis.label.set_weight("bold")
+    colorbar.ax.yaxis.labelpad = 10
 
     plt.savefig(output_file)
     print(f"📦 Saved heatmap to {output_file}")
