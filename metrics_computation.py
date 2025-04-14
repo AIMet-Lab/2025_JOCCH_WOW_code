@@ -73,7 +73,7 @@ def parse_args():
                         help="Folder containing ground truth .csv files")
     parser.add_argument("--output_folder", required=True, type=str,
                         help="Folder to store output metric files")
-    parser.add_argument("--threshold", type=float, default=0.75,
+    parser.add_argument("--threshold", type=float, default=0.875,
                         help="Classification threshold (default: 0.625)")
     parser.add_argument("--log_level", type=str, default="INFO",
                         help="Logging level: DEBUG, INFO, WARNING, ERROR")

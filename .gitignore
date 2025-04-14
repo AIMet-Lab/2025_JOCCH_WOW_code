@@ -175,3 +175,4 @@ cython_debug/
 .DS_Store*
 outputs/graphs/*
 outputs/metrics/*
+outputs/raw_results/old/*

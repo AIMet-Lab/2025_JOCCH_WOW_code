@@ -59,8 +59,8 @@ def main():
             model_hf_id = model_row["MODEL"]
             model_lang = model_row["LANGUAGE"]
 
-            if model_lang != dataset_lang:
-                continue  # skip non-matching language combinations
+            # if model_lang != dataset_lang:
+            #     continue  # skip non-matching language combinations
 
             for template_entry in templates:
 

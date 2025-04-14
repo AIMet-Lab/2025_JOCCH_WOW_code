@@ -245,6 +245,62 @@ def plot_heatmap_summary(df: pandas.DataFrame, metric: str, output_file: pathlib
     print(f"📦 Saved heatmap to {output_file}")
 
 
+def plot_heatmap_summary_by_keytype_template(df: pandas.DataFrame, metric: str, output_file: pathlib.Path):
+
+    seaborn.set(style="whitegrid")
+
+    key_types = ["k", "c"]
+    templates = ["T0", "T1"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
+    axes = axes.flatten()
+
+    vmin, vmax = 0.05, 0.35  # Set consistent scale across heatmaps
+    cmap = "Greens"
+
+    for i, (key_type, template) in enumerate([(k, t) for k in key_types for t in templates]):
+        ax = axes[i]
+        subset = df[(df["key_type"] == key_type) & (df["template"] == template)]
+
+        heatmap_data = (
+            subset
+            .groupby(["model", "language"], as_index=True)[metric]
+            .mean()
+            .unstack()
+        )
+
+        seaborn.heatmap(
+            heatmap_data,
+            annot=True,
+            fmt=".2f",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            linewidths=0.5,
+            linecolor="white",
+            cbar=False,
+            ax=ax
+        )
+
+        if key_type == "k":
+            ax.set_title(f"Keywords - {template}", fontsize="large", weight="bold")
+        else:
+            ax.set_title(f"Concepts - {template}", fontsize="large", weight="bold")
+
+        ax.set_xlabel("Language", fontsize="medium", weight="bold", labelpad=8)
+        ax.set_ylabel("Model", fontsize="medium", weight="bold", labelpad=8)
+
+    # Add a single colorbar aligned to the full figure
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes, orientation="vertical", shrink=0.75, pad=0.02)
+    cbar.set_label(f"Mean {metric}", fontsize="medium", weight="bold", labelpad=10)
+
+    plt.savefig(output_file)
+    print(f"📊 Saved 2x2 heatmap grid to {output_file}")
+    plt.close()
+
+
 def plot_heatmap_by_threshold(df: pandas.DataFrame, metric: str, output_file: pathlib.Path):
     thresholds = sorted(df["threshold"].unique())[:4]  # Limit to 4 thresholds
     n_rows, n_cols = 2, 2
@@ -378,6 +434,12 @@ def main():
                 df_threshold,
                 metric_col,
                 output_path / f"{metric_col.lower()}_heatmap_model_language_thr_{threshold}.pdf"
+            )
+
+            plot_heatmap_summary_by_keytype_template(
+                df=plot_df,
+                metric=metric_col,
+                output_file=output_path / f"{metric_col.lower()}_heatmap_full_thr_{threshold}.pdf"
             )
 
         # Generate threshold summary heatmap (one grid across all thresholds)
