@@ -23,6 +23,15 @@ MODEL_PALETTE = {
     "M8": "salmon"
 }
 
+LANGUAGE_COLOR_PALETTE = {
+    "en": "#66c2a5",     # you can adjust colors as you prefer
+    "en_nmt": "#fc8d62",
+    "it": "#8da0cb"
+}
+
+# Fixed order of languages
+LANGUAGE_ORDER = ["it", "en", "en_nmt"]
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate plots from evaluation metrics.")
@@ -54,7 +63,8 @@ def plot_boxplot_distribution(df: pandas.DataFrame, metric: str, output_file: pa
         kind="box",
         col="key_type",
         row="template",
-        palette="Set2",
+        palette=LANGUAGE_COLOR_PALETTE,
+        hue_order=LANGUAGE_ORDER,
         height=4,
         aspect=1.5,
         dodge=True,
@@ -84,7 +94,7 @@ def plot_boxplot_distribution(df: pandas.DataFrame, metric: str, output_file: pa
     # Add row labels manually to the right
     row_titles = {"T0": "T0", "T1": "T1"}
     for i, template in enumerate(plot.row_names):
-        ax = plot.axes[i, -1]  # last column of each row
+        ax = plot.axes[i, -1]
         ax.annotate(
             row_titles.get(template, template),
             xy=(1.05, 0.5),
