@@ -1,4 +1,4 @@
-import pandas
+
 import time
 import logging
 import torch
@@ -6,6 +6,7 @@ import transformers
 import liqfit.models
 import liqfit.pipeline
 import pandas
+
 
 #
 #
@@ -108,12 +109,6 @@ def keywords_extraction(df: pandas.DataFrame,
 #
 #
 #
-
-import logging
-import time
-import pandas
-import torch
-import transformers
 
 
 def _select_device(logger: logging.Logger) -> str:
@@ -347,13 +342,6 @@ def _score_prompts_choice_sequence_probability(
 
     probs = torch.sigmoid(pos_lp - neg_lp)
     return probs.detach().cpu().tolist()
-
-
-import logging
-import time
-import pandas
-import torch
-import transformers
 
 
 def decoder_only_keywords_extraction(
