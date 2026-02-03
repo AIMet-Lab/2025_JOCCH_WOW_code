@@ -34,7 +34,7 @@ def decoder_defaults_l40(kind: str) -> dict:
     if kind == "concepts":
         return {"batch_size": 32, "label_chunk_size": 19, "prompt_batch_size": 512, "max_length": 512}
     if kind == "keywords":
-        return {"batch_size": 4, "label_chunk_size": 64, "prompt_batch_size": 256, "max_length": 512}
+        return {"batch_size": 32, "label_chunk_size": 64, "prompt_batch_size": 512, "max_length": 512}
     return {"batch_size": 8, "label_chunk_size": 32, "prompt_batch_size": 256, "max_length": 512}
 
 
