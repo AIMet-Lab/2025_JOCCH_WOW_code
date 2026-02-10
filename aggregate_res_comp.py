@@ -2,45 +2,41 @@
 """
 Aggregate entailment experiment CSVs into per-text metrics CSVs.
 
-Fix implemented (important):
-- Keywords are considered the same across languages within the same keyword_set, even if translated.
-  We therefore index keywords by column order:
+Key features:
+- Predictions in outputs/raw_results/
+- Ground truth in data/
+- Rows are aligned by order across languages (row_id)
+- Keywords are aligned across languages by COLUMN ORDER within the same keyword_set:
     kw_id = 0..K-1 (excluding text/time)
-  and join/aggregate using kw_id (not the keyword string).
+  This avoids double-counting translated keyword names across languages.
+- Duplicate texts are handled by using row_id-based keys (not text strings).
+- Produces split outputs (c/k) and true aggregated outputs (all) that collapse across keyword sets.
+- Adds gt_num_entailed and mean_f_score_across_models.
 
-Folders (from project root):
-  Predictions: outputs/raw_results/
-  Ground truth: data/
-  Outputs: outputs/analysis/
+Naming:
+  Predictions: quotes_<keyword_set>_<language>_<model>_<template>.csv
+    keyword_set in {c,k}
+    language in {en,en_nmt,it}
+    model in {M1..M8}
+    template in {T0,T1}
+    columns: text,time,<kw1>,...,<kwN>
 
-Files:
-  - Predictions:
-      quotes_<keyword_set>_<language>_<model>_<template>.csv
-      keyword_set in {c,k}
-      language in {en,en_nmt,it}
-      model in {M1..M8}
-      template in {T0,T1}
-      columns: text,time,<keyword_1>,...,<keyword_n> where keyword columns are y_pred in [0,1]
-      NOTE: rows aligned across languages by order (row_id)
+  Ground truth: quotes_<keyword_set>_<language>.csv
+    columns: text,<kw1>,...,<kwN>
 
-  - Ground truth:
-      quotes_<keyword_set>_<language>.csv
-      columns: text,<keyword_1>,...,<keyword_n> where keyword columns are y_true in {0,1}
-      NOTE: rows aligned across languages by order (row_id)
-
-Outputs:
+Outputs (always) in outputs/analysis/:
   Language-separated:
-    text_aggregate_metrics_all.csv
     text_aggregate_metrics_c.csv
     text_aggregate_metrics_k.csv
+    text_aggregate_metrics_all.csv         (aggregated across c+k)
 
-  Cross-language:
-    text_aggregate_metrics_all_xlang.csv
+  Cross-language (canonical text from EN GT):
     text_aggregate_metrics_c_xlang.csv
     text_aggregate_metrics_k_xlang.csv
+    text_aggregate_metrics_all_xlang.csv   (aggregated across c+k)
 
 Optional (with --write_breakdowns):
-  For each tag:
+  For each tag above:
     text_model_breakdown_{tag}.csv
     text_keyword_errors_{tag}.csv
     text_experiment_breakdown_{tag}.csv
@@ -81,7 +77,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "If set, enforce same number of keyword columns between GT and predictions for each (set,lang). "
-            "Keyword *names* may differ; only counts/order matter."
+            "Keyword NAMES may differ; only counts/order matter."
         ),
     )
     return p.parse_args()
@@ -122,7 +118,7 @@ def melt_ground_truth_with_rowid_and_kwid(gt_path: Path) -> Tuple[pd.DataFrame, 
     """
     Returns:
       gt_long columns: [row_id, kw_id, y_true]
-      kw_cols_order: list of original keyword column names in order (for reference)
+      kw_cols_order: keyword column names in order
     """
     gt = safe_read_csv(gt_path)
     if "text" not in gt.columns:
@@ -141,7 +137,6 @@ def melt_ground_truth_with_rowid_and_kwid(gt_path: Path) -> Tuple[pd.DataFrame, 
         var_name="kw_colname",
         value_name="y_true",
     )
-
     col_to_id = {c: i for i, c in enumerate(kw_cols)}
     long["kw_id"] = long["kw_colname"].map(col_to_id).astype(int)
     long = long.drop(columns=["kw_colname"])
@@ -152,8 +147,9 @@ def melt_ground_truth_with_rowid_and_kwid(gt_path: Path) -> Tuple[pd.DataFrame, 
 def melt_predictions_with_rowid_and_kwid(pred_path: Path, meta: Dict[str, str]) -> Tuple[pd.DataFrame, List[str]]:
     """
     Returns:
-      pred_long columns: [row_id, text, time, kw_id, y_pred, keyword_set, language, model, template]
-      kw_cols_order: list of original keyword column names in order (for reference)
+      pred_long columns:
+        [row_id, text, time, kw_id, y_pred, keyword_set, language, model, template]
+      kw_cols_order: keyword column names in order
     """
     df = safe_read_csv(pred_path)
     if "text" not in df.columns:
@@ -174,7 +170,6 @@ def melt_predictions_with_rowid_and_kwid(pred_path: Path, meta: Dict[str, str]) 
         var_name="kw_colname",
         value_name="y_pred",
     )
-
     col_to_id = {c: i for i, c in enumerate(kw_cols)}
     long["kw_id"] = long["kw_colname"].map(col_to_id).astype(int)
     long = long.drop(columns=["kw_colname"])
@@ -185,11 +180,6 @@ def melt_predictions_with_rowid_and_kwid(pred_path: Path, meta: Dict[str, str]) 
     return long, kw_cols
 
 
-def compute_correct(y_true: pd.Series, y_pred: pd.Series, thr: float) -> pd.Series:
-    pred_label = (y_pred >= thr).astype(float)
-    return (pred_label == y_true).astype(float)
-
-
 def aggregate_tables_by_id(
     data: pd.DataFrame,
     id_cols: List[str],
@@ -198,7 +188,8 @@ def aggregate_tables_by_id(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     data must contain:
-      id_cols + [text_col, language, model, template, time, abs_error, correct, gt_num_entailed, kw_col_for_counts]
+      id_cols + [text_col, language, model, template, time, abs_error, correct, gt_num_entailed,
+                 kw_col_for_counts, tp, fp, fn]
     """
 
     exp_cols = _uniq(id_cols + [text_col, "language", "model", "template"])
@@ -226,9 +217,24 @@ def aggregate_tables_by_id(
             accuracy=("correct", "mean"),
             mean_error=("abs_error", "mean"),
             num_pairs=(kw_col_for_counts, "size"),
+            tp=("tp", "sum"),
+            fp=("fp", "sum"),
+            fn=("fn", "sum"),
         )
         .reset_index()
     )
+
+    # Micro-F1 over keyword decisions for that (text-id, model)
+    tp = per_text_model["tp"].astype(float)
+    fp = per_text_model["fp"].astype(float)
+    fn = per_text_model["fn"].astype(float)
+
+    denom_p = tp + fp
+    denom_r = tp + fn
+    precision = np.where(denom_p > 0, tp / denom_p, 0.0)
+    recall = np.where(denom_r > 0, tp / denom_r, 0.0)
+    denom_f = precision + recall
+    per_text_model["f_score"] = np.where(denom_f > 0, 2.0 * precision * recall / denom_f, 0.0)
 
     per_text = (
         data.groupby(text_id_cols, dropna=False)
@@ -248,7 +254,6 @@ def aggregate_tables_by_id(
         .reset_index()
     )
 
-    # Robustness across models per text-id
     model_rob = (
         per_text_model.groupby(text_id_cols, dropna=False)
         .agg(
@@ -256,6 +261,7 @@ def aggregate_tables_by_id(
             best_accuracy_by_model=("accuracy", "max"),
             std_accuracy_across_models=("accuracy", "std"),
             mean_accuracy_across_models=("accuracy", "mean"),
+            mean_f_score_across_models=("f_score", "mean"),
         )
         .reset_index()
     )
@@ -270,7 +276,7 @@ def aggregate_tables_by_id(
 
     per_text = per_text.sort_values(["worst_score", "num_predictions_total"], ascending=[False, False])
 
-    # Rename display text column to 'text' only at the end (prevents KeyError)
+    # Rename display text column to 'text' only at the end
     per_text = per_text.rename(columns={text_col: "text"})
     per_text_model = per_text_model.rename(columns={text_col: "text"})
     per_text_exp = per_text_exp.rename(columns={text_col: "text"})
@@ -301,8 +307,6 @@ def text_keyword_table_by_id(
         .reset_index()
         .rename(columns={text_col: "text"})
     )
-
-    # For readability, if we have a label column, keep it; otherwise kw_col stays as-is.
     return out
 
 
@@ -316,7 +320,6 @@ def write_outputs(
     df_for_kw: pd.DataFrame,
     id_cols: List[str],
     text_col: str,
-    kw_col_for_counts: str,
     kw_col_for_breakdown: str,
     kw_label_col: str | None,
 ) -> None:
@@ -357,12 +360,14 @@ def main() -> None:
     if not pred_files:
         raise FileNotFoundError(f"No prediction files found in {pred_dir}. Expected names like quotes_c_en_M1_T0.csv")
 
-    # Build canonical EN label maps by keyword position:
-    #   (keyword_set, kw_id) -> kw_label_en (from EN GT column names)
+    # Build canonical EN keyword labels by position:
+    # (keyword_set, kw_id) -> kw_label_en (from EN GT column names)
     kw_label_en: Dict[Tuple[str, int], str] = {}
-    # Also canonical EN quote text and entailed count per (set,row_id)
+
+    # Canonical EN quote text and entailed count per (set,row_id)
     en_text_map: Dict[Tuple[str, int], str] = {}
     en_entailed_map: Dict[Tuple[str, int], int] = {}
+
     # Totals across sets per row_id for *_all outputs
     en_text_all_map: Dict[int, str] = {}
     en_entailed_total_map: Dict[int, int] = {}
@@ -393,12 +398,14 @@ def main() -> None:
         en_text_all_map[rid] = en_text_map.get(("c", rid), en_text_map.get(("k", rid), ""))
         en_entailed_total_map[rid] = int(en_entailed_map.get(("c", rid), 0) + en_entailed_map.get(("k", rid), 0))
 
-    # Cache GT longs by (keyword_set, language), and expected keyword-count per (set,lang)
+    # Cache GT longs by (keyword_set, language) and keyword counts
     gt_long_cache: Dict[Tuple[str, str], pd.DataFrame] = {}
     gt_kwcount_cache: Dict[Tuple[str, str], int] = {}
 
     skipped: List[str] = []
     all_rows: List[pd.DataFrame] = []
+
+    thr = float(args.threshold)
 
     for pf in pred_files:
         m = PRED_RE.match(pf.name)
@@ -455,8 +462,16 @@ def main() -> None:
         merged["kw_global_id"] = merged["keyword_set"].astype(str) + "::" + merged["kw_id"].astype(str)
         merged["kw_global_label_en"] = merged["keyword_set"].astype(str) + "::" + merged["kw_label_en"].astype(str)
 
+        # Derived metrics
         merged["abs_error"] = (merged["y_pred"] - merged["y_true"]).abs()
-        merged["correct"] = compute_correct(merged["y_true"], merged["y_pred"], args.threshold)
+        merged["pred_label"] = (merged["y_pred"] >= thr).astype(int)
+
+        # Positive class = entailment (y_true==1)
+        merged["tp"] = ((merged["pred_label"] == 1) & (merged["y_true"] == 1)).astype(int)
+        merged["fp"] = ((merged["pred_label"] == 1) & (merged["y_true"] == 0)).astype(int)
+        merged["fn"] = ((merged["pred_label"] == 0) & (merged["y_true"] == 1)).astype(int)
+
+        merged["correct"] = (merged["pred_label"] == merged["y_true"].astype(int)).astype(float)
 
         all_rows.append(merged)
 
@@ -477,7 +492,6 @@ def main() -> None:
             continue
         subset["gt_num_entailed"] = subset["gt_num_entailed_set"]
 
-        # keyword counting uses kw_id (language-invariant by construction)
         per_text, per_text_model, per_text_exp = aggregate_tables_by_id(
             subset,
             id_cols=id_cols_lang_split,
@@ -494,13 +508,11 @@ def main() -> None:
             df_for_kw=subset,
             id_cols=id_cols_lang_split,
             text_col="text",
-            kw_col_for_counts="kw_id",
             kw_col_for_breakdown="kw_id",
-            kw_label_col="kw_label_en",  # helpful in breakdowns
+            kw_label_col="kw_label_en",
         )
 
     # 1b) ALL language-separated: aggregate across keyword sets
-    # unique key: (language, row_id) ; keyword counting uses kw_global_id
     id_cols_lang_all = ["language", "row_id"]
     all_lang = data_all.copy()
     all_lang["gt_num_entailed"] = all_lang["gt_num_entailed_total"]
@@ -521,7 +533,6 @@ def main() -> None:
         df_for_kw=all_lang,
         id_cols=id_cols_lang_all,
         text_col="text",
-        kw_col_for_counts="kw_global_id",
         kw_col_for_breakdown="kw_global_id",
         kw_label_col="kw_global_label_en",
     )
@@ -554,13 +565,11 @@ def main() -> None:
             df_for_kw=subset,
             id_cols=id_cols_x_split,
             text_col="text_en_set",
-            kw_col_for_counts="kw_id",
             kw_col_for_breakdown="kw_id",
             kw_label_col="kw_label_en",
         )
 
     # 2b) ALL cross-language: aggregate across keyword sets
-    # unique key: (row_id); keyword counting uses kw_global_id
     id_cols_x_all = ["row_id"]
     all_x = data_all.copy()
     all_x["gt_num_entailed"] = all_x["gt_num_entailed_total"]
@@ -581,7 +590,6 @@ def main() -> None:
         df_for_kw=all_x,
         id_cols=id_cols_x_all,
         text_col="text_en_all",
-        kw_col_for_counts="kw_global_id",
         kw_col_for_breakdown="kw_global_id",
         kw_label_col="kw_global_label_en",
     )
